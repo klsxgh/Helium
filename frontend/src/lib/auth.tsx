@@ -63,6 +63,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = React.useCallback(async () => {
     if (!firebaseAuth) return;
     await fbSignOut(firebaseAuth);
+    // Clear local state and reload to ensure fresh data for next login
+    if (typeof window !== "undefined") {
+      // Clear local storage data that might be user-specific
+      try {
+        window.localStorage.removeItem("helium-theme");
+        window.localStorage.removeItem("helium-reviewer");
+        window.localStorage.removeItem("helium-topk");
+        // Don't remove tour completion - that's not user-specific
+      } catch {
+        // ignore
+      }
+      // Reload page to ensure clean state
+      window.location.href = "/";
+    }
   }, []);
 
   const value: AuthContextValue = {

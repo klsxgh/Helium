@@ -189,8 +189,8 @@ async def reindex(document_id: str, uid: str = CurrentUser) -> DocumentOut:
     response_model=list[ChunkOut],
     summary="Inspect the generated chunks for a document",
 )
-async def document_chunks(document_id: str) -> list[ChunkOut]:
-    repository = get_repository()
+async def document_chunks(document_id: str, uid: str = CurrentUser) -> list[ChunkOut]:
+    repository = get_repository(uid)
     document = repository.get_document(document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -199,8 +199,9 @@ async def document_chunks(document_id: str) -> list[ChunkOut]:
 
 
 @router.get("/chunks/{chunk_id}", summary="Fetch a full source chunk for citation review")
-async def get_chunk(chunk_id: str) -> dict[str, Any]:
-    chunk = get_repository().get_chunk(chunk_id)
+async def get_chunk(chunk_id: str, uid: str = CurrentUser) -> dict[str, Any]:
+    repository = get_repository(uid)
+    chunk = repository.get_chunk(chunk_id)
     if not chunk:
         raise HTTPException(status_code=404, detail="Source chunk not found.")
     return chunk

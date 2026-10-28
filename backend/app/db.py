@@ -21,6 +21,7 @@ PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY,
+    uid TEXT NOT NULL DEFAULT 'local',
     filename TEXT NOT NULL,
     content_type TEXT NOT NULL DEFAULT '',
     extension TEXT NOT NULL DEFAULT '',
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS documents (
     processed_at TEXT
 );
 
+CREATE INDEX IF NOT EXISTS idx_documents_uid ON documents(uid);
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 CREATE INDEX IF NOT EXISTS idx_documents_filename ON documents(filename);
 CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(sha256);
@@ -79,6 +81,7 @@ CREATE INDEX IF NOT EXISTS idx_claims_chunk ON claims(chunk_id);
 
 CREATE TABLE IF NOT EXISTS queries (
     id TEXT PRIMARY KEY,
+    uid TEXT NOT NULL DEFAULT 'local',
     query TEXT NOT NULL,
     answer TEXT NOT NULL,
     citations TEXT NOT NULL DEFAULT '[]',
@@ -91,6 +94,7 @@ CREATE TABLE IF NOT EXISTS queries (
     created_at TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_queries_uid ON queries(uid);
 CREATE INDEX IF NOT EXISTS idx_queries_created ON queries(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS query_sources (
@@ -103,6 +107,7 @@ CREATE TABLE IF NOT EXISTS query_sources (
 
 CREATE TABLE IF NOT EXISTS conflicts (
     id TEXT PRIMARY KEY,
+    uid TEXT NOT NULL DEFAULT 'local',
     query_id TEXT NOT NULL REFERENCES queries(id) ON DELETE CASCADE,
     claim_a_id TEXT NOT NULL,
     claim_b_id TEXT NOT NULL,
@@ -122,6 +127,7 @@ CREATE TABLE IF NOT EXISTS conflicts (
     created_at TEXT NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_conflicts_uid ON conflicts(uid);
 CREATE INDEX IF NOT EXISTS idx_conflicts_query ON conflicts(query_id);
 CREATE INDEX IF NOT EXISTS idx_conflicts_status ON conflicts(status);
 CREATE INDEX IF NOT EXISTS idx_conflicts_relationship ON conflicts(relationship);
