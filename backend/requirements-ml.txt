@@ -1,0 +1,4 @@
+# Optional local ML stack. Helium falls back to deterministic hash embeddings
+# and a blank spaCy pipeline when these packages are not installed.
+sentence-transformers>=3.0,<6
+transformers>=4.44,<6

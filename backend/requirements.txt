@@ -1,0 +1,11 @@
+# Core backend dependencies. Python 3.11+.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+pydantic>=2.8,<3
+python-multipart>=0.0.9,<1
+numpy>=1.26,<3
+faiss-cpu>=1.8,<2
+pypdf>=5.0,<7
+pdfplumber>=0.11,<1
+python-docx>=1.1,<2
+spacy>=3.7,<4

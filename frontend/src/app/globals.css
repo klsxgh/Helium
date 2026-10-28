@@ -1,0 +1,267 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 98%;
+  --foreground: 240 10% 4%;
+  --surface: 0 0% 100%;
+  --surface-subtle: 240 5% 96%;
+  --surface-raised: 0 0% 100%;
+  --muted: 240 5% 96%;
+  --muted-foreground: 240 4% 46%;
+  --border: 240 6% 90%;
+  --input: 240 6% 89%;
+  --ring: 217 91% 60%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 199 89% 48%;
+  --accent-foreground: 0 0% 100%;
+}
+
+.dark {
+  --background: 240 10% 4%;
+  --foreground: 0 0% 98%;
+  --surface: 240 8% 6%;
+  --surface-subtle: 240 6% 9%;
+  --surface-raised: 240 7% 8%;
+  --muted: 240 5% 12%;
+  --muted-foreground: 240 5% 64%;
+  --border: 240 6% 16%;
+  --input: 240 6% 19%;
+  --ring: 217 91% 60%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 190 95% 55%;
+  --accent-foreground: 240 10% 4%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+html {
+  color-scheme: light;
+  scroll-behavior: smooth;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: hsl(var(--ring) / 0.22);
+}
+
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.7);
+  outline-offset: 2px;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: hsl(var(--muted-foreground) / 0.22);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.38);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+@layer utilities {
+  .dot-grid {
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      hsl(var(--muted-foreground) / 0.18) 1px,
+      transparent 0
+    );
+    background-size: 18px 18px;
+  }
+
+  .top-fade {
+    mask-image: linear-gradient(to bottom, transparent 0, black 20px, black 100%);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer components {
+  .surface-card {
+    @apply rounded-xl border border-border bg-surface;
+  }
+
+  .micro-label {
+    @apply text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground;
+  }
+
+  .metric-value {
+    @apply font-mono text-sm font-medium tabular-nums text-foreground;
+  }
+
+  .citation-pill {
+    @apply inline-flex translate-y-[-1px] items-center gap-1 rounded-[5px] border border-primary/20 bg-primary/[0.07] px-1.5 py-0.5 align-baseline font-mono text-[10px] font-medium leading-4 text-primary transition-colors hover:border-primary/40 hover:bg-primary/[0.12];
+  }
+
+  .markdown {
+    @apply text-[13.5px] leading-[1.7] text-foreground;
+  }
+
+  .markdown > *:first-child {
+    margin-top: 0;
+  }
+
+  .markdown > *:last-child {
+    margin-bottom: 0;
+  }
+
+  .markdown h1,
+  .markdown h2,
+  .markdown h3,
+  .markdown h4 {
+    @apply mb-2 mt-5 font-semibold tracking-[-0.01em] text-foreground;
+  }
+
+  .markdown h1 {
+    @apply text-lg;
+  }
+
+  .markdown h2 {
+    @apply text-base;
+  }
+
+  .markdown h3 {
+    @apply text-[13px] uppercase tracking-[0.08em] text-muted-foreground;
+  }
+
+  .markdown p {
+    @apply my-2.5;
+  }
+
+  .markdown strong {
+    @apply font-semibold text-foreground;
+  }
+
+  .markdown ul,
+  .markdown ol {
+    @apply my-2.5 space-y-1.5 pl-5;
+  }
+
+  .markdown ul {
+    @apply list-disc;
+  }
+
+  .markdown ol {
+    @apply list-decimal;
+  }
+
+  .markdown li::marker {
+    color: hsl(var(--muted-foreground) / 0.55);
+  }
+
+  .markdown blockquote {
+    @apply my-3.5 rounded-r-lg border-l-2 border-primary/40 bg-primary/[0.05] py-2 pl-3 pr-3 text-[12.5px] text-muted-foreground;
+  }
+
+  .markdown blockquote p {
+    @apply my-0;
+  }
+
+  .markdown code {
+    @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[11.5px] text-foreground;
+  }
+
+  .markdown pre {
+    @apply my-3 overflow-x-auto rounded-lg border border-border bg-surface-subtle p-3;
+  }
+
+  .markdown pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .markdown table {
+    @apply my-3 w-full overflow-hidden rounded-lg border border-border text-[12px];
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .markdown thead {
+    @apply bg-surface-subtle text-left text-[10px] uppercase tracking-[0.1em] text-muted-foreground;
+  }
+
+  .markdown th,
+  .markdown td {
+    @apply border-b border-border px-3 py-2 align-top;
+  }
+
+  .markdown tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .markdown a:not(.citation-pill) {
+    @apply text-primary underline decoration-primary/30 underline-offset-2 hover:decoration-primary;
+  }
+
+  .markdown hr {
+    @apply my-4 border-border;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

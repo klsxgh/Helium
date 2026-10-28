@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Helium runtime data and indexes
+backend/data/
+backend/data-test/
+backend/data-*/
+*.sqlite3
+*.faiss.index
+faiss.meta.json
+backend/uploads/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+frontend/.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment and local secrets
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# QA artifacts
+*.png
+!frontend/public/**/*.svg
+!frontend/public/**/*.png
