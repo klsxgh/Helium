@@ -17,6 +17,7 @@ import { Toasts, type ToastItem, type ToastTone } from "@/components/Toasts";
 import { Button } from "@/components/ui";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { isFirebaseConfigured } from "@/lib/firebase";
+import { documentStore } from "@/lib/documents";
 import {
   api,
   streamQuery,
@@ -78,7 +79,9 @@ function applyConflict(snapshot: AnalysisSnapshot, updated: Conflict): AnalysisS
 
 function HeliumPage() {
   const [theme, setTheme] = React.useState<"light" | "dark" | null>(null);
-  const [documents, setDocuments] = React.useState<HeliumDocument[]>([]);
+  // Use persistent document store instead of React state
+  // Render from documentStore.getAll()
+  const [, forceUpdate] = React.useState(0);
   const [stats, setStats] = React.useState<RepositoryStats | null>(null);
   const [health, setHealth] = React.useState<HealthResponse | null>(null);
   const [history, setHistory] = React.useState<HistoryItem[]>([]);
@@ -106,6 +109,9 @@ function HeliumPage() {
   const [reviewer, setReviewer] = React.useState(DEFAULT_REVIEWER);
   const auth = useAuth();
 
+  // Get documents from persistent store
+  const documents = documentStore.getAll();
+
   const abortRef = React.useRef<AbortController | null>(null);
   const timersRef = React.useRef<Map<string, number>>(new Map());
 
@@ -129,7 +135,8 @@ function HeliumPage() {
   const refreshRepository = React.useCallback(async () => {
     try {
       const [documentList, status] = await Promise.all([api.listDocuments(), api.health()]);
-      setDocuments(documentList.documents);
+      // Sync backend response with persistent store
+      documentStore.syncWithBackend(documentList.documents);
       setStats(documentList.stats);
       setHealth(status);
       setBackendError(null);
@@ -161,6 +168,14 @@ function HeliumPage() {
     () => documents.some((document) => document.status === "processing" || document.status === "queued"),
     [documents],
   );
+
+  React.useEffect(() => {
+    // Subscribe to document store changes
+    const unsubscribe = documentStore.subscribe(() => {
+      forceUpdate((prev) => prev + 1);
+    });
+    return unsubscribe;
+  }, []);
 
   React.useEffect(() => {
     try {
@@ -389,6 +404,13 @@ function HeliumPage() {
       setUploadProgress(0);
       try {
         const result = await uploadDocuments(valid, setUploadProgress);
+        
+        // Add locally uploaded documents to store immediately
+        // so they appear in UI right away (like image uploads)
+        for (const doc of result.documents) {
+          documentStore.addLocal(doc);
+        }
+        
         notify(
           rejected
             ? `${result.message} ${rejected} file(s) were rejected locally.`
@@ -397,6 +419,8 @@ function HeliumPage() {
         );
         setSidebarTab("sources");
         if (window.matchMedia("(max-width: 1023px)").matches) setPane("sources");
+        
+        // Refresh to sync with backend (documents will update as processing completes)
         await refreshRepository();
       } catch (err) {
         notify(err instanceof Error ? err.message : "The upload failed.", "error");
@@ -432,6 +456,8 @@ function HeliumPage() {
         onConfirm: async () => {
           try {
             await api.deleteDocument(document.id);
+            // Remove from persistent store immediately
+            documentStore.remove(document.id);
             notify(`${document.filename} was deleted and the index rebuilt.`, "success");
             await refreshRepository();
             void refreshHistory();
