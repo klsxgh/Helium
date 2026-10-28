@@ -116,22 +116,26 @@ METADATA_ONLY_RE = re.compile(
 
 @lru_cache(maxsize=1)
 def get_nlp():
-    import spacy  # type: ignore
-
     settings = get_settings()
     try:
-        nlp = spacy.load(settings.spacy_model)
-        logger.info("Loaded spaCy model %s", settings.spacy_model)
-        return nlp
-    except Exception as exc:
-        logger.warning("spaCy model %s unavailable; using blank pipeline: %s", settings.spacy_model, exc)
+        import spacy  # type: ignore
+
         try:
-            nlp = spacy.blank("en")
-            if "sentencizer" not in nlp.pipe_names:
-                nlp.add_pipe("sentencizer")
+            nlp = spacy.load(settings.spacy_model)
+            logger.info("Loaded spaCy model %s", settings.spacy_model)
             return nlp
-        except Exception:
-            return None
+        except Exception as exc:
+            logger.warning("spaCy model %s unavailable; using blank pipeline: %s", settings.spacy_model, exc)
+            try:
+                nlp = spacy.blank("en")
+                if "sentencizer" not in nlp.pipe_names:
+                    nlp.add_pipe("sentencizer")
+                return nlp
+            except Exception:
+                return None
+    except ImportError:
+        logger.warning("spaCy not installed; claim extraction will use regex rules only.")
+        return None
 
 
 def _clean_heading(heading: str | None) -> str | None:
