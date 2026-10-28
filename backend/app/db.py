@@ -143,8 +143,9 @@ def _row_to_document(row: sqlite3.Row | None) -> dict[str, Any] | None:
 
 
 class SqliteRepository:
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, uid: str = "local"):
         self.path = Path(path)
+        self.uid = uid
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def connect(self) -> sqlite3.Connection:
@@ -179,10 +180,26 @@ class SqliteRepository:
         def columns(table: str) -> set[str]:
             return {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
 
+        # Add uid columns to tables (for per-user data isolation)
+        document_columns = columns("documents")
+        if "uid" not in document_columns:
+            connection.execute("ALTER TABLE documents ADD COLUMN uid TEXT NOT NULL DEFAULT 'local'")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_documents_uid ON documents(uid)")
+        
+        query_columns = columns("queries")
+        if "uid" not in query_columns:
+            connection.execute("ALTER TABLE queries ADD COLUMN uid TEXT NOT NULL DEFAULT 'local'")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_queries_uid ON queries(uid)")
+        
+        conflict_columns = columns("conflicts")
+        if "uid" not in conflict_columns:
+            connection.execute("ALTER TABLE conflicts ADD COLUMN uid TEXT NOT NULL DEFAULT 'local'")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_conflicts_uid ON conflicts(uid)")
+
+        # Existing migrations
         claim_columns = columns("claims")
         if "subject" not in claim_columns:
             connection.execute("ALTER TABLE claims ADD COLUMN subject TEXT NOT NULL DEFAULT ''")
-        query_columns = columns("queries")
         if "claims" not in query_columns:
             connection.execute("ALTER TABLE queries ADD COLUMN claims TEXT NOT NULL DEFAULT '[]'")
         if "kind" not in query_columns:
@@ -202,18 +219,20 @@ class SqliteRepository:
         sha256: str,
         stored_path: str,
         version: int = 1,
+        uid: str = "local",
     ) -> dict[str, Any]:
         now = utc_now()
         with self.transaction(write=True) as connection:
             connection.execute(
                 """
                 INSERT INTO documents (
-                    id, filename, content_type, extension, size_bytes, sha256,
+                    id, uid, filename, content_type, extension, size_bytes, sha256,
                     version, status, stage, progress, stored_path, uploaded_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 'Queued', 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'Queued', 0, ?, ?)
                 """,
                 (
                     document_id,
+                    uid,
                     filename,
                     content_type,
                     extension,
@@ -226,19 +245,19 @@ class SqliteRepository:
             )
         return self.get_document(document_id) or {}
 
-    def next_version(self, filename: str) -> int:
+    def next_version(self, filename: str, uid: str = "local") -> int:
         with self.transaction() as connection:
             row = connection.execute(
-                "SELECT COALESCE(MAX(version), 0) + 1 AS next FROM documents WHERE lower(filename) = lower(?)",
-                (filename,),
+                "SELECT COALESCE(MAX(version), 0) + 1 AS next FROM documents WHERE lower(filename) = lower(?) AND uid = ?",
+                (filename, uid),
             ).fetchone()
         return int(row["next"]) if row else 1
 
-    def find_document_by_hash(self, sha256: str) -> dict[str, Any] | None:
+    def find_document_by_hash(self, sha256: str, uid: str = "local") -> dict[str, Any] | None:
         with self.transaction() as connection:
             row = connection.execute(
-                "SELECT * FROM documents WHERE sha256 = ? AND status = 'ready' ORDER BY uploaded_at DESC LIMIT 1",
-                (sha256,),
+                "SELECT * FROM documents WHERE sha256 = ? AND status = 'ready' AND uid = ? ORDER BY uploaded_at DESC LIMIT 1",
+                (sha256, uid),
             ).fetchone()
         return _row_to_document(row)
 
@@ -249,10 +268,10 @@ class SqliteRepository:
             ).fetchone()
         return _row_to_document(row)
 
-    def list_documents(self, limit: int = 200) -> list[dict[str, Any]]:
+    def list_documents(self, limit: int = 200, uid: str = "local") -> list[dict[str, Any]]:
         with self.transaction() as connection:
             rows = connection.execute(
-                "SELECT * FROM documents ORDER BY uploaded_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM documents WHERE uid = ? ORDER BY uploaded_at DESC LIMIT ?", (uid, limit)
             ).fetchall()
         return [item for row in rows if (item := _row_to_document(row)) is not None]
 
@@ -290,10 +309,10 @@ class SqliteRepository:
         return document
 
     def reset_all(self) -> None:
-        """Delete every document, report, and conflict so the workspace starts fresh."""
+        """Delete every document, report, and conflict for this user so the workspace starts fresh."""
         with self.transaction(write=True) as connection:
-            connection.execute("DELETE FROM queries")
-            connection.execute("DELETE FROM documents")
+            connection.execute("DELETE FROM queries WHERE uid = ?", (self.uid,))
+            connection.execute("DELETE FROM documents WHERE uid = ?", (self.uid,))
         with self.transaction(write=True) as connection:
             connection.execute("VACUUM")
 
@@ -467,18 +486,21 @@ class SqliteRepository:
         sources: list[dict[str, Any]],
         conflicts: list[dict[str, Any]],
         kind: str = "query",
+        uid: str | None = None,
     ) -> None:
+        uid = uid or self.uid
         now = utc_now()
         with self.transaction(write=True) as connection:
             connection.execute(
                 """
                 INSERT INTO queries (
-                    id, query, answer, citations, claims, metrics, consistency_score,
+                    id, uid, query, answer, citations, claims, metrics, consistency_score,
                     chunks_analyzed, top_k, kind, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     query_id,
+                    uid,
                     query,
                     answer,
                     json_dumps(citations),
@@ -504,15 +526,16 @@ class SqliteRepository:
             connection.executemany(
                 """
                 INSERT INTO conflicts (
-                    id, query_id, claim_a_id, claim_b_id, relationship, severity,
+                    id, uid, query_id, claim_a_id, claim_b_id, relationship, severity,
                     confidence, explanation, mismatches, claim_a_json, claim_b_json,
                     status, resolution, active_claim_id, resolved_by,
                     resolution_note, resolved_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
                         conflict["id"],
+                        uid,
                         query_id,
                         conflict["claim_a"]["claim_id"],
                         conflict["claim_b"]["claim_id"],
@@ -535,10 +558,11 @@ class SqliteRepository:
                 ],
             )
 
-    def get_query(self, query_id: str) -> dict[str, Any] | None:
+    def get_query(self, query_id: str, uid: str | None = None) -> dict[str, Any] | None:
+        uid = uid or self.uid
         with self.transaction() as connection:
             row = connection.execute(
-                "SELECT * FROM queries WHERE id = ?", (query_id,)
+                "SELECT * FROM queries WHERE id = ? AND uid = ?", (query_id, uid)
             ).fetchone()
         if not row:
             return None
@@ -546,10 +570,11 @@ class SqliteRepository:
         query["citations"] = json_loads(query.get("citations"), [])
         query["claims"] = json_loads(query.get("claims"), [])
         query["metrics"] = json_loads(query.get("metrics"), {})
-        query["conflicts"] = self.get_conflicts_for_query(query_id)
+        query["conflicts"] = self.get_conflicts_for_query(query_id, uid=uid)
         return query
 
-    def list_queries(self, limit: int = 30) -> list[dict[str, Any]]:
+    def list_queries(self, limit: int = 30, uid: str | None = None) -> list[dict[str, Any]]:
+        uid = uid or self.uid
         with self.transaction() as connection:
             rows = connection.execute(
                 """
@@ -559,33 +584,36 @@ class SqliteRepository:
                        COUNT(cf.id) AS pair_count
                 FROM queries q
                 LEFT JOIN conflicts cf ON cf.query_id = q.id
-                WHERE q.kind = 'query'
+                WHERE q.kind = 'query' AND q.uid = ?
                 GROUP BY q.id
                 ORDER BY q.created_at DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (uid, limit),
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_conflicts_for_query(self, query_id: str) -> list[dict[str, Any]]:
+    def get_conflicts_for_query(self, query_id: str, uid: str | None = None) -> list[dict[str, Any]]:
+        uid = uid or self.uid
         with self.transaction() as connection:
             rows = connection.execute(
-                "SELECT * FROM conflicts WHERE query_id = ? ORDER BY created_at ASC",
-                (query_id,),
+                "SELECT * FROM conflicts WHERE query_id = ? AND uid = ? ORDER BY created_at ASC",
+                (query_id, uid),
             ).fetchall()
         return [self._hydrate_conflict(row) for row in rows]
 
     def list_conflicts(
-        self, status: str | None = None, limit: int = 100
+        self, status: str | None = None, limit: int = 100, uid: str | None = None
     ) -> list[dict[str, Any]]:
+        uid = uid or self.uid
         sql = """
             SELECT cf.*, q.query AS query_text
             FROM conflicts cf JOIN queries q ON q.id = cf.query_id
+            WHERE cf.uid = ?
         """
-        params: list[Any] = []
+        params: list[Any] = [uid]
         if status and status != "all":
-            sql += " WHERE cf.status = ?"
+            sql += " AND cf.status = ?"
             params.append(status)
         sql += " ORDER BY cf.created_at DESC LIMIT ?"
         params.append(limit)
@@ -593,15 +621,16 @@ class SqliteRepository:
             rows = connection.execute(sql, params).fetchall()
         return [self._hydrate_conflict(row, include_query=True) for row in rows]
 
-    def get_conflict(self, conflict_id: str) -> dict[str, Any] | None:
+    def get_conflict(self, conflict_id: str, uid: str | None = None) -> dict[str, Any] | None:
+        uid = uid or self.uid
         with self.transaction() as connection:
             row = connection.execute(
                 """
                 SELECT cf.*, q.query AS query_text
                 FROM conflicts cf JOIN queries q ON q.id = cf.query_id
-                WHERE cf.id = ?
+                WHERE cf.id = ? AND cf.uid = ?
                 """,
-                (conflict_id,),
+                (conflict_id, uid),
             ).fetchone()
         return self._hydrate_conflict(row, include_query=True) if row else None
 
@@ -675,12 +704,14 @@ class SqliteRepository:
                 """
                 SELECT COUNT(*) AS total,
                        SUM(CASE WHEN status = 'processing' OR status = 'queued' THEN 1 ELSE 0 END) AS active
-                FROM documents
-                """
+                FROM documents WHERE uid = ?
+                """,
+                (self.uid,),
             ).fetchone()
             chunks = connection.execute("SELECT COUNT(*) AS total FROM chunks").fetchone()
             queries = connection.execute(
-                "SELECT COUNT(*) AS total FROM queries WHERE kind = 'query'"
+                "SELECT COUNT(*) AS total FROM queries WHERE kind = 'query' AND uid = ?",
+                (self.uid,),
             ).fetchone()
             conflicts = connection.execute(
                 """
@@ -689,11 +720,13 @@ class SqliteRepository:
                     SUM(CASE WHEN status = 'flagged' THEN 1 ELSE 0 END) AS flagged_count,
                     SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) AS resolved_count,
                     SUM(CASE WHEN relationship = 'contradiction' THEN 1 ELSE 0 END) AS contradictions
-                FROM conflicts
-                """
+                FROM conflicts WHERE uid = ?
+                """,
+                (self.uid,),
             ).fetchone()
             ready = connection.execute(
-                "SELECT COUNT(*) AS total FROM documents WHERE status = 'ready'"
+                "SELECT COUNT(*) AS total FROM documents WHERE status = 'ready' AND uid = ?",
+                (self.uid,),
             ).fetchone()
         return {
             "documents": int(documents["total"] or 0),
@@ -709,12 +742,13 @@ class SqliteRepository:
 
 
 _repository: Repository | None = None
+_user_repositories: dict[str, Repository] = {}
 
 
 Repository = SqliteRepository
 
 def get_repository(uid: str | None = None) -> Any:
-    global _repository
+    global _repository, _user_repositories
     # Firestore path: when Firebase is configured, use per-user Firestore storage.
     try:
         from .services.firebase import firebase_enabled
@@ -726,7 +760,9 @@ def get_repository(uid: str | None = None) -> Any:
     except Exception:
         pass
     # SQLite fallback (local dev / tests / unauthenticated).
-    if _repository is None:
-        _repository = SqliteRepository(get_settings().db_path)
-        _repository.init()
-    return _repository
+    # Create separate repository instances per uid for proper data isolation.
+    uid = uid or "local"
+    if uid not in _user_repositories:
+        _user_repositories[uid] = SqliteRepository(get_settings().db_path, uid=uid)
+        _user_repositories[uid].init()
+    return _user_repositories[uid]

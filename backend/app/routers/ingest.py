@@ -113,7 +113,7 @@ async def ingest_documents(
     queued: list[str] = []
     duplicate_count = 0
     for item in prepared:
-        existing = repository.find_document_by_hash(item["sha256"])
+        existing = repository.find_document_by_hash(item["sha256"], uid=uid)
         if existing:
             created.append(existing)
             duplicate_count += 1
@@ -153,7 +153,7 @@ async def list_documents(
     limit: int = Query(default=200, ge=1, le=1000), uid: str = CurrentUser
 ) -> DocumentList:
     repository = get_repository(uid)
-    docs = repository.list_documents(limit=limit)
+    docs = repository.list_documents(limit=limit, uid=uid)
     return DocumentList(
         documents=[DocumentOut(**doc) for doc in docs],
         stats=repository.stats(),

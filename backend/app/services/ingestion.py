@@ -207,7 +207,7 @@ def register_file(
     document_id = new_id("doc")
     stored_path = settings.upload_dir / f"{document_id}{extension}"
     stored_path.write_bytes(content)
-    version = repository.next_version(filename)
+    version = repository.next_version(filename, uid=uid or "local")
     try:
         return repository.create_document(
             document_id=document_id,
@@ -218,6 +218,7 @@ def register_file(
             sha256=sha256,
             stored_path=str(stored_path),
             version=version,
+            uid=uid or "local",
         )
     except Exception:
         try:
