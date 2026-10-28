@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ..auth import CurrentUser
 from ..db import get_repository
 from ..schemas import RelationshipOut, ResolveConflictRequest
 from ..services.generator import RELATIONSHIP_LABEL
@@ -43,8 +44,9 @@ def _oldest_claim(conflict: dict[str, Any]) -> dict[str, Any]:
 async def list_conflicts(
     status: str = Query(default="all", pattern="^(all|open|flagged|resolved)$"),
     limit: int = Query(default=100, ge=1, le=500),
+    uid: str = CurrentUser,
 ) -> list[RelationshipOut]:
-    rows = get_repository().list_conflicts(status=status, limit=limit)
+    rows = get_repository(uid).list_conflicts(status=status, limit=limit)
     return [RelationshipOut(**row) for row in rows]
 
 
@@ -53,8 +55,8 @@ async def list_conflicts(
     response_model=RelationshipOut,
     summary="Inspect a single conflict with claim snapshots",
 )
-async def get_conflict(conflict_id: str) -> RelationshipOut:
-    row = get_repository().get_conflict(conflict_id)
+async def get_conflict(conflict_id: str, uid: str = CurrentUser) -> RelationshipOut:
+    row = get_repository(uid).get_conflict(conflict_id)
     if not row:
         raise HTTPException(status_code=404, detail="Conflict not found.")
     return RelationshipOut(**row)
@@ -66,9 +68,9 @@ async def get_conflict(conflict_id: str) -> RelationshipOut:
     summary="Resolve, flag, or reopen a conflict",
 )
 async def resolve_conflict(
-    conflict_id: str, request: ResolveConflictRequest
+    conflict_id: str, request: ResolveConflictRequest, uid: str = CurrentUser
 ) -> RelationshipOut:
-    repository = get_repository()
+    repository = get_repository(uid)
     conflict = repository.get_conflict(conflict_id)
     if not conflict:
         raise HTTPException(status_code=404, detail="Conflict not found.")
@@ -101,16 +103,16 @@ async def resolve_conflict(
 
 
 @router.get("/admin/stats", summary="Repository and review dashboard counters")
-async def admin_stats() -> dict[str, Any]:
-    repository = get_repository()
+async def admin_stats(uid: str = CurrentUser) -> dict[str, Any]:
+    repository = get_repository(uid)
     stats = repository.stats()
     stats["relationship_labels"] = RELATIONSHIP_LABEL
     return stats
 
 
 @router.post("/admin/reset", summary="Delete all documents, reports, and conflicts")
-async def reset_workspace() -> dict[str, Any]:
-    repository = get_repository()
+async def reset_workspace(uid: str = CurrentUser) -> dict[str, Any]:
+    repository = get_repository(uid)
     repository.reset_all()
     get_index().rebuild()
     settings = get_settings()

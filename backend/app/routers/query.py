@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from ..auth import CurrentUser
 from ..config import get_settings
 from ..db import get_repository
 from ..schemas import HistoryItem, QueryRequest, QueryResult
@@ -39,9 +40,9 @@ def _stream_pieces(text: str, size: int = 28) -> list[str]:
 
 
 @router.post("/query", response_model=QueryResult, summary="Ask a grounded policy question")
-async def query(request: QueryRequest) -> QueryResult:
+async def query(request: QueryRequest, uid: str = CurrentUser) -> QueryResult:
     top_k = request.top_k or get_settings().retrieval_top_k
-    result = await asyncio.to_thread(run_query, request.query, top_k)
+    result = await asyncio.to_thread(run_query, request.query, top_k, uid=uid)
     return QueryResult(**result)
 
 
@@ -50,7 +51,7 @@ async def query(request: QueryRequest) -> QueryResult:
     summary="Stream a grounded answer and structured consistency report",
     response_class=StreamingResponse,
 )
-async def stream_query(request: QueryRequest) -> StreamingResponse:
+async def stream_query(request: QueryRequest, uid: str = CurrentUser) -> StreamingResponse:
     top_k = request.top_k or get_settings().retrieval_top_k
 
     async def event_stream() -> AsyncIterator[str]:
@@ -59,7 +60,7 @@ async def stream_query(request: QueryRequest) -> StreamingResponse:
             {"stage": "retrieving", "message": "Embedding query and searching the FAISS index…"},
         )
         try:
-            result = await asyncio.to_thread(run_query, request.query, top_k)
+            result = await asyncio.to_thread(run_query, request.query, top_k, uid=uid)
         except Exception as exc:
             logger.exception("Streaming query failed")
             yield _sse("error", {"message": str(exc), "retryable": True})
@@ -95,8 +96,8 @@ async def stream_query(request: QueryRequest) -> StreamingResponse:
 
 
 @router.get("/history", response_model=list[HistoryItem], summary="Recent query history")
-async def history(limit: int = Query(default=30, ge=1, le=200)) -> list[HistoryItem]:
-    rows = get_repository().list_queries(limit=limit)
+async def history(limit: int = Query(default=30, ge=1, le=200), uid: str = CurrentUser) -> list[HistoryItem]:
+    rows = get_repository(uid).list_queries(limit=limit)
     return [
         HistoryItem(
             id=row["id"],
@@ -113,8 +114,8 @@ async def history(limit: int = Query(default=30, ge=1, le=200)) -> list[HistoryI
 
 
 @router.get("/history/{query_id}", response_model=QueryResult, summary="Reopen a query report")
-async def history_detail(query_id: str) -> QueryResult:
-    result = get_query_result(query_id)
+async def history_detail(query_id: str, uid: str = CurrentUser) -> QueryResult:
+    result = get_query_result(query_id, repository=get_repository(uid))
     if not result:
         raise HTTPException(status_code=404, detail="Query not found.")
     return QueryResult(**result)

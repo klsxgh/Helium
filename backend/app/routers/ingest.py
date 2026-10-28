@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
+from ..auth import CurrentUser
 from ..config import ALLOWED_EXTENSIONS, get_settings
 from ..db import get_repository
 from ..schemas import (
@@ -55,6 +56,7 @@ def _validate_signature(extension: str, content: bytes) -> None:
 async def ingest_documents(
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(..., description="PDF, DOCX, or TXT files"),
+    uid: str = CurrentUser,
 ) -> UploadResult:
     settings = get_settings()
     if not files:
@@ -106,7 +108,7 @@ async def ingest_documents(
             detail="The batch is too large. Upload fewer files or increase the configured limit.",
         )
 
-    repository = get_repository()
+    repository = get_repository(uid)
     created: list[dict[str, Any]] = []
     queued: list[str] = []
     duplicate_count = 0
@@ -117,6 +119,7 @@ async def ingest_documents(
             duplicate_count += 1
             continue
         document = register_file(
+            uid=uid,
             filename=item["filename"],
             content=item["content"],
             content_type=item["content_type"],
@@ -128,7 +131,7 @@ async def ingest_documents(
         queued.append(document["id"])
 
     if queued:
-        background_tasks.add_task(process_documents, queued)
+        background_tasks.add_task(process_documents, queued, uid=uid)
 
     if queued and duplicate_count:
         message = (
@@ -146,8 +149,10 @@ async def ingest_documents(
 
 
 @router.get("/documents", response_model=DocumentList, summary="List repository documents")
-async def list_documents(limit: int = Query(default=200, ge=1, le=1000)) -> DocumentList:
-    repository = get_repository()
+async def list_documents(
+    limit: int = Query(default=200, ge=1, le=1000), uid: str = CurrentUser
+) -> DocumentList:
+    repository = get_repository(uid)
     docs = repository.list_documents(limit=limit)
     return DocumentList(
         documents=[DocumentOut(**doc) for doc in docs],
@@ -156,8 +161,8 @@ async def list_documents(limit: int = Query(default=200, ge=1, le=1000)) -> Docu
 
 
 @router.delete("/documents/{document_id}", summary="Delete a document and rebuild the index")
-async def remove_document(document_id: str) -> dict[str, Any]:
-    deleted = await run_in_threadpool(delete_document, document_id)
+async def remove_document(document_id: str, uid: str = CurrentUser) -> dict[str, Any]:
+    deleted = await run_in_threadpool(delete_document, document_id, uid=uid)
     if not deleted:
         raise HTTPException(status_code=404, detail="Document not found.")
     return {"deleted": True, "document_id": document_id}
@@ -168,12 +173,12 @@ async def remove_document(document_id: str) -> dict[str, Any]:
     response_model=DocumentOut,
     summary="Re-run parsing and indexing for a document",
 )
-async def reindex(document_id: str) -> DocumentOut:
-    document = get_repository().get_document(document_id)
+async def reindex(document_id: str, uid: str = CurrentUser) -> DocumentOut:
+    document = get_repository(uid).get_document(document_id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found.")
-    await run_in_threadpool(reindex_document, document_id)
-    updated = get_repository().get_document(document_id)
+    await run_in_threadpool(reindex_document, document_id, uid=uid)
+    updated = get_repository(uid).get_document(document_id)
     if not updated:
         raise HTTPException(status_code=404, detail="Document not found.")
     return DocumentOut(**updated)
@@ -207,10 +212,10 @@ async def get_chunk(chunk_id: str) -> dict[str, Any]:
     status_code=status.HTTP_202_ACCEPTED,
     summary="Load the demonstration policy corpus",
 )
-async def seed_demo(background_tasks: BackgroundTasks) -> SeedResult:
+async def seed_demo(background_tasks: BackgroundTasks, uid: str = CurrentUser) -> SeedResult:
     documents, queued = await run_in_threadpool(seed_demo_corpus)
     if queued:
-        background_tasks.add_task(process_documents, queued)
+        background_tasks.add_task(process_documents, queued, uid=uid)
         message = f"Queued {len(queued)} demonstration policy documents for indexing."
     else:
         message = "The demonstration corpus is already loaded."

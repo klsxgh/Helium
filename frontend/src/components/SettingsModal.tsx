@@ -71,6 +71,8 @@ export interface SettingsModalProps {
   onSeedDemo: () => void;
   onReplayTour: () => void;
   onResetWorkspace: () => Promise<void>;
+  onSignOut: () => Promise<void>;
+  userEmail: string | null;
 }
 
 export function SettingsModal({
@@ -89,6 +91,8 @@ export function SettingsModal({
   onSeedDemo,
   onReplayTour,
   onResetWorkspace,
+  onSignOut,
+  userEmail,
 }: SettingsModalProps) {
   const [mounted, setMounted] = React.useState(false);
   const closeRef = React.useRef<HTMLButtonElement>(null);
@@ -377,6 +381,19 @@ export function SettingsModal({
               ) : null}
             </div>
           </details>
+          <Section title="Account" description="Your Google account. Signing out keeps your data in the cloud.">
+            {userEmail ? (
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-[11px] text-foreground">{userEmail}</span>
+                <Button size="xs" variant="secondary" onClick={() => void onSignOut()}>
+                  Sign out
+                </Button>
+              </div>
+            ) : (
+              <p className="text-[10.5px] text-muted-foreground">Not signed in.</p>
+            )}
+          </Section>
+
           <Section
             title="Danger zone"
             description="Permanently delete all documents, reports, conflicts, and uploaded files. This cannot be undone."

@@ -22,12 +22,13 @@ logger = logging.getLogger("helium.ingestion")
 def process_document(
     document_id: str,
     *,
+    uid: str | None = None,
     repository: Repository | None = None,
     embedder: EmbeddingService | None = None,
     index: IndexManager | None = None,
 ) -> None:
     settings = get_settings()
-    repository = repository or get_repository()
+    repository = repository or get_repository(uid)
     embedder = embedder or get_embedder()
     index = index or get_index()
     document = repository.get_document(document_id)
@@ -135,18 +136,19 @@ def process_document(
         logger.exception("Ingestion failed for %s", document["filename"])
 
 
-def process_documents(document_ids: list[str]) -> None:
+def process_documents(document_ids: list[str], *, uid: str | None = None) -> None:
     for document_id in document_ids:
-        process_document(document_id)
+        process_document(document_id, uid=uid)
 
 
 def delete_document(
     document_id: str,
     *,
+    uid: str | None = None,
     repository: Repository | None = None,
     index: IndexManager | None = None,
 ) -> bool:
-    repository = repository or get_repository()
+    repository = repository or get_repository(uid)
     index = index or get_index()
     document = repository.get_document(document_id)
     if not document:
@@ -167,10 +169,11 @@ def delete_document(
 def reindex_document(
     document_id: str,
     *,
+    uid: str | None = None,
     repository: Repository | None = None,
     index: IndexManager | None = None,
 ) -> bool:
-    repository = repository or get_repository()
+    repository = repository or get_repository(uid)
     index = index or get_index()
     document = repository.get_document(document_id)
     if not document:
@@ -191,6 +194,7 @@ def reindex_document(
 
 def register_file(
     *,
+    uid: str | None = None,
     filename: str,
     content: bytes,
     content_type: str = "text/plain",
@@ -199,7 +203,7 @@ def register_file(
     repository: Repository | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
-    repository = repository or get_repository()
+    repository = repository or get_repository(uid)
     document_id = new_id("doc")
     stored_path = settings.upload_dir / f"{document_id}{extension}"
     stored_path.write_bytes(content)

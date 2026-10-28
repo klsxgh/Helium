@@ -15,6 +15,8 @@ import { SettingsModal } from "@/components/SettingsModal";
 import { Sidebar, type SidebarTab } from "@/components/Sidebar";
 import { Toasts, type ToastItem, type ToastTone } from "@/components/Toasts";
 import { Button } from "@/components/ui";
+import { AuthProvider, useAuth } from "@/lib/auth";
+import { isFirebaseConfigured } from "@/lib/firebase";
 import {
   api,
   streamQuery,
@@ -74,7 +76,7 @@ function applyConflict(snapshot: AnalysisSnapshot, updated: Conflict): AnalysisS
   };
 }
 
-export default function HeliumPage() {
+function HeliumPage() {
   const [theme, setTheme] = React.useState<"light" | "dark" | null>(null);
   const [documents, setDocuments] = React.useState<HeliumDocument[]>([]);
   const [stats, setStats] = React.useState<RepositoryStats | null>(null);
@@ -102,6 +104,7 @@ export default function HeliumPage() {
   const [confirm, setConfirm] = React.useState<ConfirmState | null>(null);
   const [topK, setTopK] = React.useState(8);
   const [reviewer, setReviewer] = React.useState(DEFAULT_REVIEWER);
+  const auth = useAuth();
 
   const abortRef = React.useRef<AbortController | null>(null);
   const timersRef = React.useRef<Map<string, number>>(new Map());
@@ -666,6 +669,22 @@ export default function HeliumPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [openSources]);
 
+  if (auth.configured && !auth.loading && !auth.user) {
+    return (
+      <div className="flex h-[100dvh] flex-col items-center justify-center gap-4 bg-background px-6 text-center">
+        <img src="/helium-mark.png" alt="Helium" width={56} height={56} className="rounded-2xl shadow-sm" />
+        <h1 className="text-[20px] font-semibold tracking-[-0.02em] text-foreground">Helium</h1>
+        <p className="max-w-sm text-[12.5px] leading-relaxed text-muted-foreground">
+          Sign in with Google to open your private policy workspace. Your documents, reports, and
+          reviewer decisions are saved to your account.
+        </p>
+        <Button size="sm" variant="primary" onClick={() => void auth.signIn()}>
+          Continue with Google
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background">
       <AppHeader
@@ -806,6 +825,8 @@ export default function HeliumPage() {
         onSeedDemo={seedDemo}
         onReplayTour={startTour}
         onResetWorkspace={resetWorkspace}
+        onSignOut={async () => { await auth.signOut(); }}
+        userEmail={auth.user?.email ?? null}
       />
 
       <ProductTour
@@ -827,3 +848,12 @@ export default function HeliumPage() {
     </div>
   );
 }
+
+export default function Page() {
+  return (
+    <AuthProvider>
+      <HeliumPage />
+    </AuthProvider>
+  );
+}
+

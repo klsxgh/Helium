@@ -34,8 +34,16 @@ yarn-error.log*
 .env.local
 .env.*.local
 backend/.env
+frontend/.env
+frontend/.env.local
 
-# Editors and OS
+# Firebase / Google credentials (never commit these)
+*serviceAccount*.json
+*firebase-adminsdk*.json
+firebase-credentials.json
+google-credentials.json
+*.pem
+*.key
 .vscode/
 .idea/
 .DS_Store

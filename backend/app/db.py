@@ -136,7 +136,7 @@ def _row_to_document(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return item
 
 
-class Repository:
+class SqliteRepository:
     def __init__(self, path: Path | str):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -705,9 +705,22 @@ class Repository:
 _repository: Repository | None = None
 
 
-def get_repository() -> Repository:
+Repository = SqliteRepository
+
+def get_repository(uid: str | None = None) -> Any:
     global _repository
+    # Firestore path: when Firebase is configured, use per-user Firestore storage.
+    try:
+        from .services.firebase import firebase_enabled
+
+        if firebase_enabled() and uid is not None:
+            from .firestore_db import FirestoreRepository
+
+            return FirestoreRepository(uid)
+    except Exception:
+        pass
+    # SQLite fallback (local dev / tests / unauthenticated).
     if _repository is None:
-        _repository = Repository(get_settings().db_path)
+        _repository = SqliteRepository(get_settings().db_path)
         _repository.init()
     return _repository

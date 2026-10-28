@@ -35,11 +35,12 @@ def _summary(counts: dict[str, int], documents: int) -> str:
 def scan_documents(
     document_ids: list[str],
     *,
+    uid: str | None = None,
     repository: Repository | None = None,
 ) -> dict[str, Any]:
     """Compare every claim in the selected documents against the other files."""
 
-    repository = repository or get_repository()
+    repository = repository or get_repository(uid)
     unique_ids = list(dict.fromkeys(document_ids))
     if len(unique_ids) < 2:
         raise ValueError("Select at least two documents to compare.")
@@ -115,9 +116,9 @@ def scan_documents(
 
 
 def get_scan_result(
-    scan_id: str, *, repository: Repository | None = None
+    scan_id: str, *, uid: str | None = None, repository: Repository | None = None
 ) -> dict[str, Any] | None:
-    repository = repository or get_repository()
+    repository = repository or get_repository(uid)
     row = repository.get_query(scan_id)
     if not row or row.get("kind") != "scan":
         return None

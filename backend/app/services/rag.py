@@ -214,11 +214,12 @@ def run_query(
     query: str,
     top_k: int = 8,
     *,
+    uid: str | None = None,
     repository: Repository | None = None,
     embedder: EmbeddingService | None = None,
     index: IndexManager | None = None,
 ) -> dict[str, Any]:
-    repository = repository or get_repository()
+    repository = repository or get_repository(uid)
     embedder = embedder or get_embedder()
     index = index or get_index()
     total_started = time.perf_counter()

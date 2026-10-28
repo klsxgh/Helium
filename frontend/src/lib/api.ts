@@ -242,10 +242,24 @@ function errorMessage(detail: unknown, fallback: string): string {
   return fallback;
 }
 
+let authTokenGetter: (() => Promise<string | null>) | null = null;
+
+export function setAuthTokenGetter(getter: (() => Promise<string | null>) | null) {
+  authTokenGetter = getter;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
+  }
+  if (authTokenGetter) {
+    try {
+      const token = await authTokenGetter();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+    } catch {
+      /* ignore */
+    }
   }
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
