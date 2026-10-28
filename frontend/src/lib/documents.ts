@@ -18,15 +18,25 @@ interface StoredDocument extends HeliumDocument {
 class DocumentStore {
   private docs: Map<string, StoredDocument> = new Map();
   private listeners: Set<() => void> = new Set();
+  private initialized = false;
 
   constructor() {
-    this.loadFromStorage();
+    // Don't load from storage in constructor (runs at build time)
+    // Initialize lazily on first access
+  }
+
+  private ensureInitialized(): void {
+    if (!this.initialized && typeof window !== "undefined") {
+      this.loadFromStorage();
+      this.initialized = true;
+    }
   }
 
   /**
    * Subscribe to document changes
    */
   subscribe(listener: () => void): () => void {
+    this.ensureInitialized();
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -68,40 +78,56 @@ class DocumentStore {
 
   /**
    * Sync documents with backend response
-   * Merges local and backend data
+   * Merges local and backend data WITHOUT deleting local docs
+   * 
+   * Strategy: Local documents are NEVER deleted by sync. They persist until:
+   * 1. Explicitly deleted by user via API call
+   * 2. User clears workspace
+   * 3. User logs out (localStorage cleared)
+   * 
+   * This prevents documents from disappearing due to API delays or errors.
    */
   syncWithBackend(backendDocs: HeliumDocument[]): void {
+    this.ensureInitialized();
     const backendMap = new Map(backendDocs.map((d) => [d.id, d]));
     const now = new Date().toISOString();
+    let changed = false;
 
-    // Update existing documents with backend data
+    // Update existing documents with backend data (merge status/progress)
     for (const [id, doc] of this.docs.entries()) {
       if (backendMap.has(id)) {
-        // Merge: keep local metadata, update processing status
+        // Update from backend: status, chunks, embeddings etc
         const backendDoc = backendMap.get(id)!;
-        this.docs.set(id, {
+        const updated: StoredDocument = {
           ...doc,
           ...backendDoc,
           syncedAt: now,
-        });
+        };
+        this.docs.set(id, updated);
         backendMap.delete(id);
-      } else {
-        // Document was deleted on backend, remove locally
-        this.docs.delete(id);
+        changed = true;
       }
+      // If NOT in backend response, KEEP local document (don't delete)
+      // This preserves documents during:
+      // - API delays (backend processing slowly)
+      // - API errors (listDocuments timeout)
+      // - Partial responses (backend returns some docs but not all)
     }
 
-    // Add new documents from backend (uploaded elsewhere)
-    for (const [id, backendDoc] of backendMap.entries()) {
-      this.docs.set(id, {
+    // Add new documents from backend (uploaded elsewhere / other devices)
+    for (const [_id, backendDoc] of backendMap.entries()) {
+      this.docs.set(backendDoc.id, {
         ...backendDoc,
         syncedAt: now,
         uploadedLocally: false,
       });
+      changed = true;
     }
 
-    this.saveToStorage();
-    this.notify();
+    if (changed) {
+      this.saveToStorage();
+      this.notify();
+    }
   }
 
   /**
@@ -109,6 +135,7 @@ class DocumentStore {
    * This appears immediately in the UI
    */
   addLocal(doc: HeliumDocument): void {
+    this.ensureInitialized();
     const stored: StoredDocument = {
       ...doc,
       syncedAt: new Date().toISOString(),
@@ -123,6 +150,7 @@ class DocumentStore {
    * Get all documents (this is what UI should render)
    */
   getAll(): StoredDocument[] {
+    this.ensureInitialized();
     return Array.from(this.docs.values()).sort(
       (a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime()
     );
@@ -132,6 +160,7 @@ class DocumentStore {
    * Get document by id
    */
   get(id: string): StoredDocument | undefined {
+    this.ensureInitialized();
     return this.docs.get(id);
   }
 
@@ -139,6 +168,7 @@ class DocumentStore {
    * Remove document (called when backend deletes it)
    */
   remove(id: string): void {
+    this.ensureInitialized();
     this.docs.delete(id);
     this.saveToStorage();
     this.notify();
@@ -148,6 +178,7 @@ class DocumentStore {
    * Update single document
    */
   update(id: string, updates: Partial<HeliumDocument>): void {
+    this.ensureInitialized();
     const doc = this.docs.get(id);
     if (doc) {
       this.docs.set(id, {
@@ -164,6 +195,7 @@ class DocumentStore {
    * Clear all documents (when user resets workspace)
    */
   clear(): void {
+    this.ensureInitialized();
     this.docs.clear();
     this.saveToStorage();
     this.notify();
@@ -173,6 +205,7 @@ class DocumentStore {
    * Get count of documents in each status
    */
   getStats() {
+    this.ensureInitialized();
     let ready = 0;
     let processing = 0;
     let failed = 0;
