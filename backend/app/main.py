@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .db import get_repository
-from .routers import admin, ingest, query, scan
+from .routers import admin, auth, ingest, query, scan
 from .schemas import HealthOut
 from .services.embedder import get_embedder, get_index
 from .services.ingestion import process_documents, seed_demo_corpus
@@ -110,6 +110,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     )
 
 
+app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(ingest.router, prefix=settings.api_prefix)
 app.include_router(query.router, prefix=settings.api_prefix)
 app.include_router(admin.router, prefix=settings.api_prefix)
