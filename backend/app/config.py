@@ -78,7 +78,12 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        data_dir = Path(os.getenv("HELIUM_DATA_DIR", str(BACKEND_DIR / "data"))).expanduser().resolve()
+        default_data_dir = (
+            "/tmp/helium-data"
+            if os.getenv("VERCEL")
+            else str(BACKEND_DIR / "data")
+        )
+        data_dir = Path(os.getenv("HELIUM_DATA_DIR", default_data_dir)).expanduser().resolve()
         upload_dir = Path(os.getenv("HELIUM_UPLOAD_DIR", str(data_dir / "uploads"))).expanduser().resolve()
         db_path = Path(os.getenv("HELIUM_DB_PATH", str(data_dir / "helium.sqlite3"))).expanduser().resolve()
         index_path = Path(os.getenv("HELIUM_INDEX_PATH", str(data_dir / "faiss.index"))).expanduser().resolve()
@@ -86,7 +91,7 @@ class Settings:
             origin.strip()
             for origin in os.getenv(
                 "HELIUM_CORS_ORIGINS",
-                "http://localhost:3000,http://127.0.0.1:3000",
+                "*" if os.getenv("VERCEL") else "http://localhost:3000,http://127.0.0.1:3000",
             ).split(",")
             if origin.strip()
         )
@@ -121,8 +126,16 @@ class Settings:
         )
 
     def ensure_directories(self) -> None:
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.upload_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            self.upload_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # On read-only serverless filesystems, fall back to /tmp.
+            fallback = Path("/tmp/helium-data")
+            self.data_dir = fallback
+            self.upload_dir = fallback / "uploads"
+            fallback.mkdir(parents=True, exist_ok=True)
+            self.upload_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)

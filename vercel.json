@@ -4,7 +4,8 @@
     "backend": {
       "root": "backend",
       "framework": "fastapi",
-      "entrypoint": "app/main.py"
+      "entrypoint": "main.py",
+      "installCommand": "pip install -r requirements-vercel.txt"
     },
     "frontend": {
       "root": "frontend",
