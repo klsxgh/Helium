@@ -439,9 +439,21 @@ export async function streamQuery(
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
 ): Promise<QueryResult | null> {
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    "Accept": "text/event-stream",
+  });
+  if (authTokenGetter) {
+    try {
+      const token = await authTokenGetter();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+    } catch {
+      /* ignore */
+    }
+  }
   const response = await fetch(`${API_BASE}/query/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    headers,
     body: JSON.stringify({ query, top_k: topK }),
     signal,
     cache: "no-store",
