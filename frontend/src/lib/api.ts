@@ -321,16 +321,29 @@ export const api = {
     request<{ reset: boolean }>("/admin/reset", { method: "POST" }),
 };
 
-export function uploadDocuments(
+export async function uploadDocuments(
   files: File[],
   onProgress?: (percent: number) => void,
 ): Promise<UploadResult> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const form = new FormData();
     files.forEach((file) => form.append("files", file));
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_BASE}/ingest`);
     xhr.responseType = "text";
+    
+    // Add Authorization header if available
+    if (authTokenGetter) {
+      try {
+        const token = await authTokenGetter();
+        if (token) {
+          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && onProgress) {
         onProgress(Math.round((event.loaded / event.total) * 100));
