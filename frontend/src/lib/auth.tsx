@@ -9,6 +9,7 @@ import {
   type User,
 } from "firebase/auth";
 import { firebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
+import { fileStore } from "@/lib/fileStore";
 import { setAuthTokenGetter } from "@/lib/api";
 
 interface AuthContextValue {
@@ -72,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         window.localStorage.removeItem("helium-topk");
         window.localStorage.removeItem("helium_documents_v1");
         window.localStorage.removeItem("helium_documents_v2");
+        void fileStore.clear();
         // Don't remove tour completion - that's not user-specific
       } catch {
         // ignore

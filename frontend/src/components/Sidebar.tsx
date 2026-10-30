@@ -25,6 +25,7 @@ import {
 
 import type { HealthResponse, HeliumDocument, HistoryItem, RepositoryStats } from "@/lib/api";
 import { api } from "@/lib/api";
+import { fileStore } from "@/lib/fileStore";
 import {
   cn,
   fileKind,
@@ -78,13 +79,22 @@ function DocumentRow({
   const handleView = async () => {
     setBusy("view");
     try {
-      const blob = await api.documentContent(document.id);
+      let blob: Blob | null = null;
+      let filename = document.filename;
+      const stored = await fileStore.get(document.id);
+      if (stored) {
+        blob = stored.blob;
+        filename = stored.filename;
+      } else {
+        blob = await api.documentContent(document.id);
+        await fileStore.save(document.id, document.filename, document.content_type, blob);
+      }
       const url = URL.createObjectURL(blob);
       const win = window.open(url, "_blank", "noopener,noreferrer");
       if (!win) {
         const anchor = window.document.createElement("a");
         anchor.href = url;
-        anchor.download = document.filename;
+        anchor.download = filename;
         anchor.click();
       }
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -98,11 +108,20 @@ function DocumentRow({
   const handleDownload = async () => {
     setBusy("download");
     try {
-      const blob = await api.documentContent(document.id);
-      const url = URL.createObjectURL(blob);
+      let blob: Blob | null = null;
+      let filename = document.filename;
+      const stored = await fileStore.get(document.id);
+      if (stored) {
+        blob = stored.blob;
+        filename = stored.filename;
+      } else {
+        blob = await api.documentContent(document.id);
+        await fileStore.save(document.id, document.filename, document.content_type, blob);
+      }
+      const url = URL.createObjectURL(blob!);
       const anchor = window.document.createElement("a");
       anchor.href = url;
-      anchor.download = document.filename;
+      anchor.download = filename;
       window.document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();

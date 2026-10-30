@@ -18,6 +18,7 @@ import { Button } from "@/components/ui";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { isFirebaseConfigured } from "@/lib/firebase";
 import { documentStore } from "@/lib/documents";
+import { fileStore, cacheRemoteFile } from "@/lib/fileStore";
 import {
   ApiError,
   api,
@@ -376,6 +377,14 @@ function HeliumPage() {
     try {
       const result = await api.seedDemo();
       notify(result.message, "success");
+      // Cache demo documents locally so they remain viewable/downloadable
+      for (const doc of result.documents) {
+        try {
+          await cacheRemoteFile(doc.id, doc.filename, doc.content_type);
+        } catch {
+          /* best effort */
+        }
+      }
       await refreshRepository();
     } catch (err) {
       notify(err instanceof Error ? err.message : "The demo corpus could not be loaded.", "error");
@@ -411,7 +420,20 @@ function HeliumPage() {
       setUploadProgress(0);
       try {
         const result = await uploadDocuments(valid, setUploadProgress);
-        
+
+        // Persist each uploaded original in the browser (IndexedDB) so it can
+        // always be viewed/downloaded later, even if server storage is cleared.
+        for (const doc of result.documents) {
+          const file = valid.find((f) => f.name === doc.filename);
+          if (file) {
+            try {
+              await fileStore.save(doc.id, doc.filename, doc.content_type, file);
+            } catch {
+              /* best effort */
+            }
+          }
+        }
+
         // Add locally uploaded documents to store immediately
         // so they appear in UI right away (like image uploads)
         for (const doc of result.documents) {
@@ -470,6 +492,7 @@ function HeliumPage() {
             }
             // Remove from persistent store immediately
             documentStore.remove(document.id);
+            void fileStore.remove(document.id);
             notify(`${document.filename} was deleted and the index rebuilt.`, "success");
             await refreshRepository();
             void refreshHistory();
@@ -642,6 +665,7 @@ function HeliumPage() {
     setScanOpen(false);
     setReviewOpen(false);
     documentStore.clear();
+    void fileStore.clear();
     await refreshRepository();
     await refreshHistory();
     notify("Workspace cleared. You can start fresh.", "success");
