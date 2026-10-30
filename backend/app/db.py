@@ -8,12 +8,15 @@ deterministic.
 from __future__ import annotations
 
 import sqlite3
+import logging
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from .utils import json_dumps, json_loads, utc_now
 from .config import get_settings
+
+logger = logging.getLogger("helium.db")
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -36,6 +39,7 @@ CREATE TABLE IF NOT EXISTS documents (
     page_count INTEGER NOT NULL DEFAULT 0,
     doc_date TEXT,
     stored_path TEXT NOT NULL DEFAULT '',
+    storage_path TEXT,
     uploaded_at TEXT NOT NULL,
     processed_at TEXT
 );
@@ -204,6 +208,9 @@ class SqliteRepository:
             connection.execute("ALTER TABLE queries ADD COLUMN claims TEXT NOT NULL DEFAULT '[]'")
         if "kind" not in query_columns:
             connection.execute("ALTER TABLE queries ADD COLUMN kind TEXT NOT NULL DEFAULT 'query'")
+        document_columns = columns("documents")
+        if "storage_path" not in document_columns:
+            connection.execute("ALTER TABLE documents ADD COLUMN storage_path TEXT")
 
     # ------------------------------------------------------------------
     # Documents
@@ -218,6 +225,7 @@ class SqliteRepository:
         size_bytes: int,
         sha256: str,
         stored_path: str,
+        storage_path: str | None = None,
         version: int = 1,
         uid: str = "local",
     ) -> dict[str, Any]:
@@ -227,8 +235,8 @@ class SqliteRepository:
                 """
                 INSERT INTO documents (
                     id, uid, filename, content_type, extension, size_bytes, sha256,
-                    version, status, stage, progress, stored_path, uploaded_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'Queued', 0, ?, ?)
+                    version, status, stage, progress, stored_path, storage_path, uploaded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 'Queued', 0, ?, ?, ?)
                 """,
                 (
                     document_id,
@@ -240,6 +248,7 @@ class SqliteRepository:
                     sha256,
                     version,
                     stored_path,
+                    storage_path,
                     now,
                 ),
             )
@@ -753,12 +762,20 @@ def get_repository(uid: str | None = None) -> Any:
     try:
         from .services.firebase import firebase_enabled
 
-        if firebase_enabled() and uid is not None:
+        if firebase_enabled():
+            if uid is None:
+                uid = "local"
             from .firestore_db import FirestoreRepository
 
             return FirestoreRepository(uid)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.exception("Firestore repository initialisation failed: %s", exc)
+        import os
+
+        if os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON") or os.getenv(
+            "FIREBASE_SERVICE_ACCOUNT_PATH"
+        ):
+            raise
     # SQLite fallback (local dev / tests / unauthenticated).
     # Create separate repository instances per uid for proper data isolation.
     uid = uid or "local"

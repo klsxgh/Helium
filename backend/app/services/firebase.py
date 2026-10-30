@@ -22,6 +22,10 @@ from typing import Any
 
 logger = logging.getLogger("helium.firebase")
 
+# Cache for a successfully created Firestore client. Failures are never cached
+# so transient init errors can be retried on the next call.
+_firestore_client_cache: dict[str, Any] = {}
+
 
 def _service_account_info() -> dict[str, Any] | None:
     raw = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
@@ -51,9 +55,15 @@ def project_id() -> str | None:
     return os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCLOUD_PROJECT")
 
 
-@lru_cache(maxsize=1)
 def get_firestore_client() -> Any | None:
-    """Return a Firestore client, or None when Firebase is not configured."""
+    """Return a Firestore client, or None when Firebase is not configured.
+
+    Transient init failures are NOT cached, so a later call can retry.
+    """
+    # Fast path: reuse a successfully created client.
+    cached = _firestore_client_cache.get("client")
+    if cached is not None:
+        return cached
     try:
         from google.cloud import firestore  # type: ignore
     except ImportError:
@@ -63,11 +73,14 @@ def get_firestore_client() -> Any | None:
     info = _service_account_info()
     try:
         if info:
-            return firestore.Client.from_service_account_info(info)
-        return firestore.Client()
+            client = firestore.Client.from_service_account_info(info)
+        else:
+            client = firestore.Client()
     except Exception as exc:  # noqa: BLE001 - treat any init failure as "disabled"
         logger.error("Firestore client initialisation failed: %s", exc)
         return None
+    _firestore_client_cache["client"] = client
+    return client
 
 
 def firebase_enabled() -> bool:
@@ -90,6 +103,79 @@ def verify_id_token(token: str) -> dict[str, Any] | None:
     except Exception as exc:  # noqa: BLE001 - invalid tokens are expected
         logger.debug("ID token verification failed: %s", exc)
         return None
+
+
+def storage_bucket_name() -> str | None:
+    return os.getenv("FIREBASE_STORAGE_BUCKET") or None
+
+
+def _storage_client() -> Any | None:
+    try:
+        from google.cloud import storage  # type: ignore
+    except ImportError:
+        logger.warning("google-cloud-storage is not installed; durable file storage disabled.")
+        return None
+    info = _service_account_info()
+    try:
+        if info:
+            return storage.Client.from_service_account_info(info)
+        return storage.Client()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Cloud Storage client initialisation failed: %s", exc)
+        return None
+
+
+def upload_file_bytes(
+    uid: str, document_id: str, extension: str, content: bytes, content_type: str | None = None
+) -> str | None:
+    """Upload raw file bytes to Firebase Storage. Returns the blob path or None."""
+    bucket_name = storage_bucket_name()
+    if not bucket_name:
+        return None
+    client = _storage_client()
+    if client is None:
+        return None
+    blob_path = f"users/{uid}/documents/{document_id}{extension}"
+    try:
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(content, content_type=content_type or "application/octet-stream")
+        return blob_path
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to upload %s to Storage: %s", blob_path, exc)
+        return None
+
+
+def download_file_bytes(blob_path: str) -> bytes | None:
+    """Download raw file bytes from Firebase Storage. Returns None on failure."""
+    bucket_name = storage_bucket_name()
+    if not bucket_name or not blob_path:
+        return None
+    client = _storage_client()
+    if client is None:
+        return None
+    try:
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        return blob.download_as_bytes()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to download %s from Storage: %s", blob_path, exc)
+        return None
+
+
+def delete_file_bytes(blob_path: str) -> None:
+    """Delete a blob from Firebase Storage (best-effort)."""
+    bucket_name = storage_bucket_name()
+    if not bucket_name or not blob_path:
+        return
+    client = _storage_client()
+    if client is None:
+        return
+    try:
+        bucket = client.bucket(bucket_name)
+        bucket.blob(blob_path).delete()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to delete %s from Storage: %s", blob_path, exc)
 
 
 def get_uid_from_request(request: Any) -> str | None:

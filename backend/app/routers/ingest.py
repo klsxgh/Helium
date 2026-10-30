@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 
 from ..auth import CurrentUser
 from ..config import ALLOWED_EXTENSIONS, get_settings
@@ -198,6 +199,46 @@ async def document_chunks(document_id: str, uid: str = CurrentUser) -> list[Chun
     return [ChunkOut(**chunk) for chunk in chunks]
 
 
+@router.get(
+    "/documents/{document_id}/content",
+    summary="Download or view the original uploaded file",
+)
+async def document_content(
+    document_id: str,
+    download: bool = Query(default=False),
+    uid: str = CurrentUser,
+) -> FileResponse:
+    repository = get_repository(uid)
+    document = repository.get_document(document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    stored_path = Path(document.get("stored_path") or "")
+    if not stored_path.is_absolute():
+        stored_path = Path.cwd() / stored_path
+    if not stored_path.exists() or not stored_path.is_file():
+        storage_path = document.get("storage_path")
+        if storage_path:
+            from .firebase import download_file_bytes
+
+            data = download_file_bytes(storage_path)
+            if data is not None:
+                try:
+                    stored_path.parent.mkdir(parents=True, exist_ok=True)
+                    stored_path.write_bytes(data)
+                except OSError as exc:
+                    logger.warning("Could not restore %s from storage: %s", stored_path, exc)
+    if not stored_path.exists() or not stored_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="The original file is no longer available on this server.",
+        )
+    media_type = document.get("content_type") or "application/octet-stream"
+    filename = document.get("filename") or stored_path.name
+    if download:
+        return FileResponse(path=stored_path, media_type=media_type, filename=filename)
+    return FileResponse(path=stored_path, media_type=media_type)
+
+
 @router.get("/chunks/{chunk_id}", summary="Fetch a full source chunk for citation review")
 async def get_chunk(chunk_id: str, uid: str = CurrentUser) -> dict[str, Any]:
     repository = get_repository(uid)
@@ -214,7 +255,7 @@ async def get_chunk(chunk_id: str, uid: str = CurrentUser) -> dict[str, Any]:
     summary="Load the demonstration policy corpus",
 )
 async def seed_demo(background_tasks: BackgroundTasks, uid: str = CurrentUser) -> SeedResult:
-    documents, queued = await run_in_threadpool(seed_demo_corpus)
+    documents, queued = await run_in_threadpool(seed_demo_corpus, uid=uid)
     if queued:
         background_tasks.add_task(process_documents, queued, uid=uid)
         message = f"Queued {len(queued)} demonstration policy documents for indexing."

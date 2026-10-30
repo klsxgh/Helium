@@ -175,5 +175,44 @@ class HeliumApiTests(unittest.TestCase):
         self.assertEqual(single.status_code, 422)
 
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_09_document_content_persists(self) -> None:
+        content = b"Persisted file bytes for download test."
+        upload = self.client.post(
+            "/api/ingest",
+            files=[("files", ("persist_test.txt", content, "text/plain"))],
+        )
+        self.assertEqual(upload.status_code, 202, upload.text)
+        document_id = upload.json()["documents"][0]["id"]
+
+        # Wait for ingestion to finish.
+        import time
+
+        for _ in range(50):
+            documents = self.client.get("/api/documents").json()["documents"]
+            match = next((d for d in documents if d["id"] == document_id), None)
+            if match is not None and match["status"] == "ready":
+                break
+            time.sleep(0.1)
+        else:
+            self.fail("document did not reach ready state")
+
+        response = self.client.get(f"/api/documents/{document_id}/content")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.content, content)
+
+        reindex = self.client.post(f"/api/documents/{document_id}/reindex")
+        self.assertEqual(reindex.status_code, 200, reindex.text)
+
+        for _ in range(50):
+            documents = self.client.get("/api/documents").json()["documents"]
+            match = next((d for d in documents if d["id"] == document_id), None)
+            if match is not None and match["status"] == "ready":
+                break
+            time.sleep(0.1)
+        else:
+            self.fail("document did not reach ready state after reindex")
+
+        delete = self.client.delete(f"/api/documents/{document_id}")
+        self.assertEqual(delete.status_code, 200, delete.text)
+        gone = self.client.get(f"/api/documents/{document_id}/content")
+        self.assertEqual(gone.status_code, 404)

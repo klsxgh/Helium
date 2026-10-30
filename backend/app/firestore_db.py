@@ -56,8 +56,8 @@ class FirestoreRepository:
     # Documents
     # ------------------------------------------------------------------
     def create_document(self, *, document_id, filename, content_type, extension,
-                        size_bytes, sha256, stored_path, version=1,
-                        uid: str | None = None) -> dict[str, Any]:
+                        size_bytes, sha256, stored_path, storage_path=None,
+                        version=1, uid: str | None = None) -> dict[str, Any]:
         now = utc_now()
         doc = {
             "id": document_id,
@@ -75,6 +75,7 @@ class FirestoreRepository:
             "page_count": 0,
             "doc_date": None,
             "stored_path": stored_path,
+            "storage_path": storage_path,
             "uploaded_at": now,
             "processed_at": None,
         }

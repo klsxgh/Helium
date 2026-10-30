@@ -37,14 +37,28 @@ def process_document(
         return
     path = Path(document["stored_path"])
     if not path.exists():
-        repository.update_document(
-            document_id,
-            status="failed",
-            stage="Failed",
-            error="Uploaded file is missing from storage.",
-            progress=0,
-        )
-        return
+        # The local copy may have been cleared (e.g. server restart on an
+        # ephemeral filesystem). Try to restore it from durable storage first.
+        storage_path = document.get("storage_path")
+        if storage_path:
+            from .firebase import download_file_bytes
+
+            data = download_file_bytes(storage_path)
+            if data is not None:
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                except OSError as exc:
+                    logger.warning("Could not restore %s from storage: %s", path, exc)
+        if not path.exists():
+            repository.update_document(
+                document_id,
+                status="failed",
+                stage="Failed",
+                error="Uploaded file is missing from storage and could not be restored.",
+                progress=0,
+            )
+            return
 
     try:
         repository.update_document(
@@ -135,6 +149,10 @@ def process_document(
         )
         logger.exception("Ingestion failed for %s", document["filename"])
 
+    # Keep the original file on disk after ingestion so that GET /documents/{id}/content
+    # and POST /documents/{id}/reindex keep working. The file is only removed by
+    # delete_document().
+
 
 def process_documents(document_ids: list[str], *, uid: str | None = None) -> None:
     for document_id in document_ids:
@@ -154,6 +172,7 @@ def delete_document(
     if not document:
         return False
     stored_path = Path(document.get("stored_path") or "")
+    storage_path = document.get("storage_path")
     removed = repository.delete_document(document_id)
     if not removed:
         return False
@@ -162,6 +181,13 @@ def delete_document(
             stored_path.unlink()
     except OSError:
         logger.warning("Could not remove uploaded file %s", stored_path)
+    if storage_path:
+        try:
+            from .firebase import delete_file_bytes
+
+            delete_file_bytes(storage_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not delete durable blob %s: %s", storage_path, exc)
     index.rebuild()
     return True
 
@@ -188,7 +214,7 @@ def reindex_document(
         error=None,
         chunk_count=0,
     )
-    process_document(document_id, repository=repository, index=index)
+    process_document(document_id, uid=uid, repository=repository, index=index)
     return True
 
 
@@ -206,7 +232,21 @@ def register_file(
     repository = repository or get_repository(uid)
     document_id = new_id("doc")
     stored_path = settings.upload_dir / f"{document_id}{extension}"
+    stored_path.parent.mkdir(parents=True, exist_ok=True)
     stored_path.write_bytes(content)
+
+    # Optional durable storage (Firebase Storage / GCS). Best-effort: local dev
+    # keeps working when the bucket isn't configured.
+    storage_path: str | None = None
+    try:
+        from .firebase import upload_file_bytes
+
+        storage_path = upload_file_bytes(
+            uid or "local", document_id, extension, content, content_type
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not upload %s to durable storage: %s", document_id, exc)
+
     version = repository.next_version(filename, uid=uid or "local")
     try:
         return repository.create_document(
@@ -217,6 +257,7 @@ def register_file(
             size_bytes=len(content),
             sha256=sha256,
             stored_path=str(stored_path),
+            storage_path=storage_path,
             version=version,
             uid=uid or "local",
         )
@@ -287,7 +328,9 @@ Expense records must be retained for 7 years.
 ]
 
 
-def seed_demo_corpus(repository: Repository | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+def seed_demo_corpus(
+    uid: str | None = None, repository: Repository | None = None
+) -> tuple[list[dict[str, Any]], list[str]]:
     """Create three intentionally overlapping policy files for demonstration.
 
     Returns the created documents plus their IDs so the API can queue ingestion.
@@ -296,8 +339,8 @@ def seed_demo_corpus(repository: Repository | None = None) -> tuple[list[dict[st
 
     import hashlib
 
-    repository = repository or get_repository()
-    existing = {doc["filename"] for doc in repository.list_documents(limit=500)}
+    repository = repository or get_repository(uid)
+    existing = {doc["filename"] for doc in repository.list_documents(limit=500, uid=uid)}
     documents: list[dict[str, Any]] = []
     ids: list[str] = []
     settings = get_settings()
@@ -309,6 +352,7 @@ def seed_demo_corpus(repository: Repository | None = None) -> tuple[list[dict[st
         data = content.encode("utf-8")
         digest = hashlib.sha256(data).hexdigest()
         document = register_file(
+            uid=uid or "local",
             filename=filename,
             content=data,
             content_type="text/plain",

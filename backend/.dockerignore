@@ -7,6 +7,7 @@ data-test/
 data-*/
 tests/
 .env
+*firebase-adminsdk*.json
 *.sqlite3
 *.faiss.index
 faiss.meta.json
