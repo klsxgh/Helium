@@ -235,12 +235,18 @@ class IndexManager:
 
     def __init__(
         self,
+        *,
+        uid: str | None = None,
         repository: Repository | None = None,
         embedder: EmbeddingService | None = None,
     ):
+        self.uid = uid or "local"
         self.settings = get_settings()
-        self.repository = repository or get_repository()
+        self.repository = repository or get_repository(self.uid)
         self.embedder = embedder or EmbeddingService()
+        # Only the default "local" user persists the FAISS file to disk; per-user
+        # indices stay in memory so they never clobber the shared index file.
+        self._should_persist = self.uid == "local"
         self._lock = threading.RLock()
         self.ids: list[str] = []
         self._vectors: np.ndarray | None = None
@@ -269,6 +275,8 @@ class IndexManager:
             self._loaded = True
 
     def _try_load_persisted(self) -> bool:
+        if not self._should_persist:
+            return False
         meta_path = self.settings.index_meta_path
         index_path = self.settings.index_path
         if self._faiss is None or not meta_path.exists() or not index_path.exists():
@@ -392,6 +400,8 @@ class IndexManager:
             return [(self.ids[int(i)], float(similarities[int(i)])) for i in top]
 
     def _persist(self) -> None:
+        if not self._should_persist:
+            return
         self.settings.data_dir.mkdir(parents=True, exist_ok=True)
         meta = {
             "ids": self.ids,
@@ -429,13 +439,13 @@ class IndexManager:
                 ),
                 "index_type": self.index_type,
                 "embedding": self.embedder.status(),
-                "persisted": self.settings.index_path.exists(),
+                "persisted": self._should_persist and self.settings.index_path.exists(),
                 "path": str(self.settings.index_path),
             }
 
 
 _embedder: EmbeddingService | None = None
-_index: IndexManager | None = None
+_indices: dict[str, IndexManager] = {}
 
 
 def get_embedder() -> EmbeddingService:
@@ -445,8 +455,9 @@ def get_embedder() -> EmbeddingService:
     return _embedder
 
 
-def get_index() -> IndexManager:
-    global _index
-    if _index is None:
-        _index = IndexManager(embedder=get_embedder())
-    return _index
+def get_index(uid: str | None = None) -> IndexManager:
+    key = uid or "local"
+    global _indices
+    if key not in _indices:
+        _indices[key] = IndexManager(uid=key, embedder=get_embedder())
+    return _indices[key]

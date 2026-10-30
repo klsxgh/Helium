@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   CalendarClock,
+  ChevronDown,
   CircleCheck,
   CircleHelp,
   ExternalLink,
@@ -19,7 +20,7 @@ import {
   X,
 } from "lucide-react";
 
-import type { Claim, Conflict, ReviewAction } from "@/lib/api";
+import type { Claim, Conflict, ReviewAction, ScoreBreakdown } from "@/lib/api";
 import type { AnalysisSnapshot, ChatEntry } from "@/lib/chat";
 import {
   cn,
@@ -49,6 +50,30 @@ const TAB_OPTIONS = [
   { value: "claims" as const, label: "Claims" },
   { value: "sources" as const, label: "Passages" },
 ];
+
+const SCORE_WEIGHTS: Record<string, number> = {
+  agreement: 1,
+  equivalence: 1,
+  ambiguity: 0.45,
+  conditional_conflict: 0.15,
+  contradiction: 0,
+};
+
+const SCORE_ORDER = [
+  "agreement",
+  "equivalence",
+  "ambiguity",
+  "conditional_conflict",
+  "contradiction",
+] as const;
+
+const SCORE_MEANINGS: Record<string, string> = {
+  agreement: "Same meaning, different wording. Earns full credit.",
+  equivalence: "Close restatements of each other. Earns full credit.",
+  ambiguity: "Related but unclear or less specific. Earns 45% credit.",
+  conditional_conflict: "Disagree only under certain conditions. Earns 15% credit.",
+  contradiction: "Directly contradict each other. Earns no credit.",
+};
 
 function InspectorHeader({
   entry,
@@ -87,6 +112,103 @@ function InspectorHeader({
         </span>
       ) : null}
     </div>
+  );
+}
+
+export interface ScoreBreakdownReport {
+  consistency_score: number;
+  relationships: Array<{ relationship: string }>;
+  claims?: Array<unknown>;
+  claims_analyzed?: number;
+  score_breakdown?: ScoreBreakdown | null;
+  metrics?: { score_breakdown?: ScoreBreakdown };
+}
+
+export function ScoreBreakdownPanel({ report }: { report: ScoreBreakdownReport }) {
+  const data = report.score_breakdown ?? report.metrics?.score_breakdown;
+  const derivedCounts: Record<string, number> = {};
+  report.relationships.forEach((item) => {
+    derivedCounts[item.relationship] = (derivedCounts[item.relationship] ?? 0) + 1;
+  });
+  const counts = data?.counts ?? derivedCounts;
+  const total = data?.total_relationships ?? report.relationships.length;
+  const weights = data?.weights ?? SCORE_WEIGHTS;
+  const score = data?.score ?? report.consistency_score;
+  const claimsCompared =
+    data?.claims_compared ?? report.claims?.length ?? report.claims_analyzed ?? 0;
+
+  const components = SCORE_ORDER.map((relationship) => {
+    const count = counts[relationship] ?? 0;
+    const weight = weights[relationship] ?? SCORE_WEIGHTS[relationship] ?? 0;
+    return {
+      relationship,
+      count,
+      weight,
+      points: total ? Math.round((weight * count * 1000) / total) / 10 : 0,
+    };
+  });
+
+  return (
+    <details className="group mt-2.5 rounded-lg border border-border/70 bg-background/40">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-2 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">
+        <CircleHelp className="h-3 w-3 shrink-0" />
+        How is this score calculated?
+        <ChevronDown className="ml-auto h-3 w-3 shrink-0 transition-transform group-open:rotate-180" />
+      </summary>
+
+      <div className="space-y-2.5 border-t border-border/70 px-2.5 py-2.5">
+        <p className="text-[10px] leading-relaxed text-muted-foreground">
+          Every pair of related claims is labelled by how the two claims relate to each other. Each
+          label earns a fixed amount of credit, and the score is the average credit across all{" "}
+          {pluralize(total, "related pair")}.
+        </p>
+
+        <div className="space-y-1">
+          {components.map((component) => {
+            const meta = relationshipMeta[component.relationship as keyof typeof relationshipMeta];
+            const active = component.count > 0;
+            return (
+              <div
+                key={component.relationship}
+                className={cn(
+                  "flex items-center gap-1.5 text-[10px]",
+                  active ? "text-foreground" : "opacity-45",
+                )}
+                title={SCORE_MEANINGS[component.relationship]}
+              >
+                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meta.dot)} />
+                <span className="min-w-[74px] text-muted-foreground">{meta.short}</span>
+                <span className="w-5 text-right tabular-nums">{component.count}</span>
+                <span className="w-11 text-right tabular-nums text-muted-foreground">
+                  x{Math.round(component.weight * 100)}%
+                </span>
+                <span className="ml-auto font-medium tabular-nums">
+                  +{component.points} pts
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="rounded-md bg-muted/40 px-2 py-1.5 text-[9.5px] leading-relaxed text-muted-foreground">
+          <span className="font-medium text-foreground">Formula: </span>
+          (agreement + equivalence + 0.45 x ambiguity + 0.15 x conditional) / related pairs x 100{" "}
+          = <span className="font-semibold text-foreground">{score}%</span>
+        </div>
+
+        {total === 0 ? (
+          <p className="text-[9.5px] leading-relaxed text-muted-foreground">
+            {data?.default_reason ||
+              "No related claim pairs were found, so there was nothing that could conflict. The set defaults to 100%."}
+          </p>
+        ) : (
+          <p className="text-[9.5px] leading-relaxed text-muted-foreground">
+            {pluralize(claimsCompared, "claim")} compared. The points column is how many of the final
+            100 points each finding type contributed.
+          </p>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -145,6 +267,8 @@ function ScoreSummary({ report }: { report: AnalysisSnapshot }) {
           },
         )}
       </div>
+
+      <ScoreBreakdownPanel report={report} />
     </div>
   );
 }

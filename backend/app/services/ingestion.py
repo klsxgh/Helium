@@ -30,7 +30,7 @@ def process_document(
     settings = get_settings()
     repository = repository or get_repository(uid)
     embedder = embedder or get_embedder()
-    index = index or get_index()
+    index = index or get_index(uid)
     document = repository.get_document(document_id)
     if not document:
         logger.warning("Document %s disappeared before ingestion", document_id)
@@ -149,7 +149,7 @@ def delete_document(
     index: IndexManager | None = None,
 ) -> bool:
     repository = repository or get_repository(uid)
-    index = index or get_index()
+    index = index or get_index(uid)
     document = repository.get_document(document_id)
     if not document:
         return False
@@ -174,7 +174,7 @@ def reindex_document(
     index: IndexManager | None = None,
 ) -> bool:
     repository = repository or get_repository(uid)
-    index = index or get_index()
+    index = index or get_index(uid)
     document = repository.get_document(document_id)
     if not document:
         return False

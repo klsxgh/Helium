@@ -19,6 +19,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { isFirebaseConfigured } from "@/lib/firebase";
 import { documentStore } from "@/lib/documents";
 import {
+  ApiError,
   api,
   streamQuery,
   uploadDocuments,
@@ -48,6 +49,7 @@ function reportFromResult(result: {
   query_id: string;
   metrics: AnalysisSnapshot["metrics"];
   consistency_score: number;
+  score_breakdown?: AnalysisSnapshot["score_breakdown"];
   chunks_analyzed: number;
   conflicts: Conflict[];
   citations: AnalysisSnapshot["citations"];
@@ -58,6 +60,7 @@ function reportFromResult(result: {
     query_id: result.query_id,
     metrics: result.metrics,
     consistency_score: result.consistency_score,
+    score_breakdown: result.score_breakdown ?? result.metrics?.score_breakdown,
     chunks_analyzed: result.chunks_analyzed,
     conflicts: result.conflicts,
     citations: result.citations,
@@ -82,6 +85,7 @@ function HeliumPage() {
   // Use persistent document store instead of React state
   // Render from documentStore.getAll()
   const [, forceUpdate] = React.useState(0);
+  const [mounted, setMounted] = React.useState(false);
   const [stats, setStats] = React.useState<RepositoryStats | null>(null);
   const [health, setHealth] = React.useState<HealthResponse | null>(null);
   const [history, setHistory] = React.useState<HistoryItem[]>([]);
@@ -109,8 +113,10 @@ function HeliumPage() {
   const [reviewer, setReviewer] = React.useState(DEFAULT_REVIEWER);
   const auth = useAuth();
 
-  // Get documents from persistent store
-  const documents = documentStore.getAll();
+  // Get documents from persistent store. Defer to after mount so SSR and the
+  // first client render agree (both empty); the store is then hydrated from
+  // localStorage and the backend without triggering a hydration mismatch.
+  const documents = mounted ? documentStore.getAll() : [];
 
   const abortRef = React.useRef<AbortController | null>(null);
   const timersRef = React.useRef<Map<string, number>>(new Map());
@@ -178,6 +184,7 @@ function HeliumPage() {
   }, []);
 
   React.useEffect(() => {
+    setMounted(true);
     try {
       const storedTheme = window.localStorage.getItem(THEME_KEY);
       setTheme(
@@ -455,7 +462,12 @@ function HeliumPage() {
         tone: "danger",
         onConfirm: async () => {
           try {
-            await api.deleteDocument(document.id);
+            try {
+              await api.deleteDocument(document.id);
+            } catch (err) {
+              const status = err instanceof ApiError ? err.status : 0;
+              if (status !== 404) throw err;
+            }
             // Remove from persistent store immediately
             documentStore.remove(document.id);
             notify(`${document.filename} was deleted and the index rebuilt.`, "success");
@@ -629,6 +641,7 @@ function HeliumPage() {
     setScanResult(null);
     setScanOpen(false);
     setReviewOpen(false);
+    documentStore.clear();
     await refreshRepository();
     await refreshHistory();
     notify("Workspace cleared. You can start fresh.", "success");
@@ -759,6 +772,7 @@ function HeliumPage() {
           onScan={runScan}
           scanning={scanLoading}
           activeQueryId={selectedEntry?.result?.query_id ?? null}
+          onNotify={notify}
           className={cn(pane === "sources" ? "flex" : "hidden", "lg:flex")}
           onCloseMobile={() => setPane("chat")}
         />

@@ -6,6 +6,8 @@ import {
   ArrowUpRight,
   Check,
   Database,
+  Download,
+  Eye,
   FileText,
   Files,
   History,
@@ -22,6 +24,7 @@ import {
 } from "lucide-react";
 
 import type { HealthResponse, HeliumDocument, HistoryItem, RepositoryStats } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   cn,
   fileKind,
@@ -55,12 +58,14 @@ function DocumentRow({
   onToggle,
   onDelete,
   onReindex,
+  onNotify,
 }: {
   document: HeliumDocument;
   selected: boolean;
   onToggle: (document: HeliumDocument) => void;
   onDelete: (document: HeliumDocument) => void;
   onReindex: (document: HeliumDocument) => void;
+  onNotify?: (message: string, tone?: "info" | "success" | "error") => void;
 }) {
   const kind = fileKind(document.extension);
   const status = STATUS_STYLE[document.status] ?? {
@@ -68,6 +73,46 @@ function DocumentRow({
     className: "text-muted-foreground",
   };
   const active = document.status === "processing" || document.status === "queued";
+  const [busy, setBusy] = React.useState<"view" | "download" | null>(null);
+
+  const handleView = async () => {
+    setBusy("view");
+    try {
+      const blob = await api.documentContent(document.id);
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank", "noopener,noreferrer");
+      if (!win) {
+        const anchor = window.document.createElement("a");
+        anchor.href = url;
+        anchor.download = document.filename;
+        anchor.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      onNotify?.(error instanceof Error ? error.message : "Could not open the source.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleDownload = async () => {
+    setBusy("download");
+    try {
+      const blob = await api.documentContent(document.id);
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement("a");
+      anchor.href = url;
+      anchor.download = document.filename;
+      window.document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      onNotify?.(error instanceof Error ? error.message : "Could not download the source.", "error");
+    } finally {
+      setBusy(null);
+    }
+  };
   const selectable = document.status === "ready";
 
   return (
@@ -116,6 +161,30 @@ function DocumentRow({
               {document.filename}
             </p>
             <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <IconButton
+                label="View source"
+                className="h-6 w-6"
+                onClick={handleView}
+                disabled={busy !== null}
+              >
+                {busy === "view" ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Eye className="h-3 w-3" />
+                )}
+              </IconButton>
+              <IconButton
+                label="Download source"
+                className="h-6 w-6"
+                onClick={handleDownload}
+                disabled={busy !== null}
+              >
+                {busy === "download" ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Download className="h-3 w-3" />
+                )}
+              </IconButton>
               <IconButton
                 label="Re-index document"
                 className="h-6 w-6"
@@ -229,6 +298,7 @@ export interface SidebarProps {
   onOpenQuery: (id: string) => void;
   onOpenReview: () => void;
   activeQueryId?: string | null;
+  onNotify?: (message: string, tone?: "info" | "success" | "error") => void;
   className?: string;
   onCloseMobile?: () => void;
 }
@@ -250,6 +320,7 @@ export function Sidebar({
   onOpenQuery,
   onOpenReview,
   activeQueryId,
+  onNotify,
   className,
   onCloseMobile,
 }: SidebarProps) {
@@ -479,6 +550,7 @@ export function Sidebar({
                     onToggle={toggleSelected}
                     onDelete={onDelete}
                     onReindex={onReindex}
+                    onNotify={onNotify}
                   />
                 ))}
               </div>

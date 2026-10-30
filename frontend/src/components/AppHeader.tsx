@@ -57,15 +57,21 @@ export function AppHeader({
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-surface/70 px-3 backdrop-blur">
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="group relative flex cursor-default items-center gap-2 overflow-hidden rounded-lg px-1 py-0.5">
         <img
           src="/helium-mark.png"
           alt="Helium"
           width={26}
           height={26}
-          className="h-[26px] w-[26px] rounded-[7px] shadow-sm"
+          className="h-[26px] w-[26px] rounded-[7px] shadow-sm transition-transform duration-300 group-hover:scale-110 group-hover:shadow-md"
         />
-        <span className="text-[13px] font-semibold tracking-[-0.02em] text-foreground">Helium</span>
+        <span className="text-[13px] font-semibold tracking-[-0.02em] text-foreground transition-colors duration-300 group-hover:text-primary">
+          Helium
+        </span>
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/45 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-full dark:via-white/25"
+        />
       </div>
 
       <div className="ml-auto flex items-center gap-1.5">

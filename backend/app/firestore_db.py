@@ -56,7 +56,8 @@ class FirestoreRepository:
     # Documents
     # ------------------------------------------------------------------
     def create_document(self, *, document_id, filename, content_type, extension,
-                        size_bytes, sha256, stored_path, version=1) -> dict[str, Any]:
+                        size_bytes, sha256, stored_path, version=1,
+                        uid: str | None = None) -> dict[str, Any]:
         now = utc_now()
         doc = {
             "id": document_id,
@@ -80,12 +81,12 @@ class FirestoreRepository:
         self._col("documents").document(document_id).set(doc)
         return self.get_document(document_id) or doc
 
-    def next_version(self, filename: str) -> int:
+    def next_version(self, filename: str, uid: str | None = None) -> int:
         docs = self._col("documents").where("filename", "==", filename).stream()
         versions = [int(d.to_dict().get("version", 1)) for d in docs]
         return (max(versions) if versions else 0) + 1
 
-    def find_document_by_hash(self, sha256: str):
+    def find_document_by_hash(self, sha256: str, uid: str | None = None):
         q = (
             self._col("documents")
             .where("sha256", "==", sha256)
@@ -108,7 +109,7 @@ class FirestoreRepository:
             data["progress"] = int(data.get("progress") or 0)
         return data
 
-    def list_documents(self, limit: int = 200):
+    def list_documents(self, limit: int = 200, uid: str | None = None):
         q = self._col("documents").order_by("uploaded_at", direction="DESCENDING").limit(limit).stream()
         out = []
         for d in q:

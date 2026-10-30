@@ -70,6 +70,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         window.localStorage.removeItem("helium-theme");
         window.localStorage.removeItem("helium-reviewer");
         window.localStorage.removeItem("helium-topk");
+        window.localStorage.removeItem("helium_documents_v1");
+        window.localStorage.removeItem("helium_documents_v2");
         // Don't remove tour completion - that's not user-specific
       } catch {
         // ignore

@@ -4,12 +4,14 @@ import type {
   Citation,
   QueryMetrics,
   QueryResult,
+  ScoreBreakdown,
 } from "./api";
 
 export interface AnalysisSnapshot {
   query_id: string;
   metrics: QueryMetrics;
   consistency_score: number;
+  score_breakdown?: ScoreBreakdown;
   chunks_analyzed: number;
   conflicts: Conflict[];
   citations: Citation[];
@@ -39,6 +41,7 @@ export function reportOf(entry: ChatEntry | null | undefined): AnalysisSnapshot 
       query_id: entry.result.query_id,
       metrics: entry.result.metrics,
       consistency_score: entry.result.consistency_score,
+      score_breakdown: entry.result.score_breakdown,
       chunks_analyzed: entry.result.chunks_analyzed,
       conflicts: entry.result.conflicts,
       citations: entry.result.citations,

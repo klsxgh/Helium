@@ -411,6 +411,7 @@ function AssistantEntry({
             <span
               className="ml-auto flex items-center gap-1 font-mono text-[9.5px]"
               style={{ color: healthColor(report.consistency_score) }}
+              title="Weighted share of related claim pairs that are not in direct conflict. Open the report to see the full breakdown."
             >
               <span
                 className="h-1 w-1 rounded-full"

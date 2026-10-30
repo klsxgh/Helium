@@ -8,6 +8,7 @@ import type { Conflict, ReviewAction, ScanResult } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { ConflictCard } from "./ConflictCard";
+import { ScoreBreakdownPanel } from "./Inspector";
 import { Badge, Button, EmptyState, IconButton, Skeleton } from "./ui";
 
 const COUNT_ROWS: Array<{ key: string; label: string; tone: string }> = [
@@ -164,6 +165,7 @@ export function ScanDrawer({
                     </div>
                   ))}
                 </div>
+                <ScoreBreakdownPanel report={result} />
               </div>
 
               {issues.length ? (

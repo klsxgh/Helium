@@ -221,7 +221,7 @@ def run_query(
 ) -> dict[str, Any]:
     repository = repository or get_repository(uid)
     embedder = embedder or get_embedder()
-    index = index or get_index()
+    index = index or get_index(uid)
     total_started = time.perf_counter()
     query_id = new_id("qry")
     created_at = utc_now()

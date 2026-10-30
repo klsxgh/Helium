@@ -8,7 +8,7 @@
 
 import type { HeliumDocument } from "@/lib/api";
 
-const STORAGE_KEY = "helium_documents_v1";
+const STORAGE_KEY = "helium_documents_v2";
 
 interface StoredDocument extends HeliumDocument {
   syncedAt: string; // ISO timestamp of last backend sync
@@ -106,12 +106,14 @@ class DocumentStore {
         this.docs.set(id, updated);
         backendMap.delete(id);
         changed = true;
+      } else if (doc.status === "ready" || doc.status === "failed") {
+        // Terminal local docs that the backend no longer reports are stale
+        // (deleted, or never persisted). Drop them so they don't linger as
+        // phantoms. In-flight (queued/processing) docs are kept so a slow
+        // or partial backend response can't wipe an upload in progress.
+        this.docs.delete(id);
+        changed = true;
       }
-      // If NOT in backend response, KEEP local document (don't delete)
-      // This preserves documents during:
-      // - API delays (backend processing slowly)
-      // - API errors (listDocuments timeout)
-      // - Partial responses (backend returns some docs but not all)
     }
 
     // Add new documents from backend (uploaded elsewhere / other devices)

@@ -136,6 +136,34 @@ export interface QueryMetrics {
   index_type: string;
   generation_backend: string;
   relationship_counts?: Record<string, number>;
+  score_breakdown?: ScoreBreakdown;
+}
+
+export interface ScoreComponent {
+  relationship: string;
+  label: string;
+  count: number;
+  weight: number;
+  weight_percent: number;
+  points: number;
+  meaning: string;
+}
+
+export interface ScoreBreakdown {
+  score: number;
+  formula: string;
+  formula_human: string;
+  summary: string;
+  total_relationships: number;
+  related_pairs: number;
+  claims_compared: number;
+  cross_document_only: boolean;
+  weights: Record<string, number>;
+  counts: Record<string, number>;
+  components: ScoreComponent[];
+  scored: boolean;
+  default_applied: boolean;
+  default_reason: string;
 }
 
 export interface QueryResult {
@@ -148,6 +176,7 @@ export interface QueryResult {
   conflicts: Conflict[];
   metrics: QueryMetrics;
   consistency_score: number;
+  score_breakdown?: ScoreBreakdown;
   chunks_analyzed: number;
   created_at: string;
 }
@@ -164,6 +193,7 @@ export interface ScanResult {
   pairs_analyzed: number;
   chunks_analyzed: number;
   consistency_score: number;
+  score_breakdown?: ScoreBreakdown;
   created_at: string;
   metrics: Record<string, unknown>;
 }
@@ -295,6 +325,29 @@ export const api = {
     request<{ documents: HeliumDocument[]; stats: RepositoryStats }>("/documents"),
   deleteDocument: (id: string) =>
     request<{ deleted: boolean }>(`/documents/${id}`, { method: "DELETE" }),
+  documentContent: async (id: string): Promise<Blob> => {
+    const headers = new Headers();
+    if (authTokenGetter) {
+      try {
+        const token = await authTokenGetter();
+        if (token) headers.set("Authorization", `Bearer ${token}`);
+      } catch {
+        /* ignore */
+      }
+    }
+    const response = await fetch(`${API_BASE}/documents/${id}/content`, { headers });
+    if (!response.ok) {
+      let detail = `Request failed with status ${response.status}`;
+      try {
+        const payload = await response.json();
+        if (payload?.detail) detail = String(payload.detail);
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(detail, response.status);
+    }
+    return response.blob();
+  },
   reindexDocument: (id: string) =>
     request<HeliumDocument>(`/documents/${id}/reindex`, { method: "POST" }),
   seedDemo: () => request<SeedResult>("/demo/seed", { method: "POST" }),
@@ -421,6 +474,7 @@ function parseSseBlock(
           query_id: string;
           metrics: QueryMetrics;
           consistency_score: number;
+          score_breakdown?: ScoreBreakdown;
           chunks_analyzed: number;
           conflicts: Conflict[];
           citations: Citation[];
